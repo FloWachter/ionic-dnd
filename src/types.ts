@@ -72,6 +72,10 @@ export interface DragEndEvent<T = unknown> {
     fromIndex: number;
     toIndex: number;
     cancelled: boolean;
+    /** Alias for fromIndex - the index of the dragged item */
+    activeIndex: number;
+    /** Alias for toIndex - the index where the item was dropped */
+    overIndex: number;
 }
 
 export interface DragOverEvent<T = unknown> {

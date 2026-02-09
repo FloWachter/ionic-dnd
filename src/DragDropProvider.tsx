@@ -115,6 +115,12 @@ export function DragDropProvider({
         offset: null,
     });
 
+    // Keep a ref to the latest state for use in callbacks
+    const stateRef = useRef(state);
+    useEffect(() => {
+        stateRef.current = state;
+    }, [state]);
+
     const [scrollOffset, setScrollOffset] = useState({ x: 0, y: 0 });
 
     const itemsRef = useRef<
@@ -158,23 +164,38 @@ export function DragDropProvider({
 
     const findItemAtPosition = useCallback(
         (position: Position): { id: string; index: number } | null => {
+            let closestItem:
+                | { id: string; index: number; distance: number }
+                | null = null;
+
             for (const [id, { index, element }] of itemsRef.current) {
                 if (id === state.draggedId) continue;
 
                 const rect = element.getBoundingClientRect();
-                const centerX = rect.left + rect.width / 2;
                 const centerY = rect.top + rect.height / 2;
 
-                // Check if position is within the element bounds
-                if (
-                    position.x >= rect.left &&
-                    position.x <= rect.right &&
-                    position.y >= rect.top &&
-                    position.y <= rect.bottom
-                ) {
-                    return { id, index };
+                // Check if position is within the horizontal bounds
+                if (position.x >= rect.left && position.x <= rect.right) {
+                    // Calculate vertical distance to center
+                    const distance = Math.abs(position.y - centerY);
+
+                    // If pointer is within the item's vertical bounds, return immediately
+                    if (position.y >= rect.top && position.y <= rect.bottom) {
+                        return { id, index };
+                    }
+
+                    // Track closest item for edge cases
+                    if (!closestItem || distance < closestItem.distance) {
+                        closestItem = { id, index, distance };
+                    }
                 }
             }
+
+            // Return closest item if within reasonable distance (100px)
+            if (closestItem && closestItem.distance < 100) {
+                return { id: closestItem.id, index: closestItem.index };
+            }
+
             return null;
         },
         [state.draggedId],
@@ -296,7 +317,9 @@ export function DragDropProvider({
     ]);
 
     const endDrag = useCallback((cancelled = false) => {
-        if (!state.isDragging) return;
+        // Use stateRef for fresh state values
+        const currentState = stateRef.current;
+        if (!currentState.isDragging) return;
 
         stopScroll();
 
@@ -305,14 +328,20 @@ export function DragDropProvider({
             triggerHaptic("medium");
         }
 
-        const fromIndex = initialIndexRef.current ?? state.draggedIndex ?? 0;
-        const toIndex = cancelled ? fromIndex : (state.overIndex ?? fromIndex);
+        const fromIndex = initialIndexRef.current ??
+            currentState.draggedIndex ?? 0;
+        const toIndex = cancelled
+            ? fromIndex
+            : (currentState.overIndex ?? fromIndex);
 
         onDragEnd?.({
-            item: { id: state.draggedId!, index: fromIndex, data: null },
+            item: { id: currentState.draggedId!, index: fromIndex, data: null },
             fromIndex,
             toIndex,
             cancelled,
+            // Include activeIndex and overIndex for easier destructuring
+            activeIndex: fromIndex,
+            overIndex: toIndex,
         });
 
         setState({
@@ -327,7 +356,7 @@ export function DragDropProvider({
 
         draggedElementRef.current = null;
         initialIndexRef.current = null;
-    }, [state, config.hapticFeedback, stopScroll, onDragEnd]);
+    }, [config.hapticFeedback, stopScroll, onDragEnd]);
 
     // Global event handlers for pointer/touch up and cancel
     useEffect(() => {
